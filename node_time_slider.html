@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Node Displacement Time Slider</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #2a2a2a;
+            font-family: Arial, sans-serif;
+        }
+        #canvas-container {
+            background-color: #1a1a1a;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        .info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #ffffff;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 5px;
+            font-size: 14px;
+            max-width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <div class="info">
+        <h3 style="margin-top: 0;">Node Displacement Visualizer</h3>
+        <p><strong>Click and drag</strong> on the connection line to scrub through time</p>
+        <p><strong>Ghost nodes:</strong> Initial position (t=0)</p>
+        <p><strong>Solid nodes:</strong> Current position at selected time</p>
+        <p><strong>Yellow arrows:</strong> Displacement magnitude in inches</p>
+        <p id="timeDisplay">Time: 0.00s</p>
+        <p style="font-size: 11px; color: #999; margin-top: 10px;">Scale: 10 pixels = 1 inch</p>
+    </div>
+    
+    <script>
+        // Node displacement data (simulated earthquake motion)
+        // In your real application, this would come from your CSV files
+        const timeSteps = 200; // Number of time steps
+        const duration = 10.0; // Duration in seconds
+        
+        // Scale factor: pixels per inch for display
+        // Adjust this to make displacements more visible
+        const PIXELS_PER_INCH = 10; // 10 pixels = 1 inch
+        
+        // Generate sample displacement data for two nodes
+        // Returns displacement in INCHES
+        function generateDisplacementData() {
+            const data = {
+                NW: { x: [], y: [] },
+                NE: { x: [], y: [] }
+            };
+            
+            // Simulate earthquake-like motion with multiple frequencies
+            // Realistic earthquake displacements are typically 0-6 inches
+            for (let i = 0; i < timeSteps; i++) {
+                const t = (i / timeSteps) * duration;
+                const decay = Math.exp(-0.3 * t); // Damping effect
+                
+                // Node NW - lower frequency, larger amplitude (in inches)
+                data.NW.x.push(3.0 * decay * Math.sin(2 * Math.PI * 0.8 * t) + 
+                              1.0 * decay * Math.sin(2 * Math.PI * 3.5 * t));
+                data.NW.y.push(2.5 * decay * Math.cos(2 * Math.PI * 1.2 * t) + 
+                              0.8 * decay * Math.cos(2 * Math.PI * 4.2 * t));
+                
+                // Node NE - higher frequency, different phase (in inches)
+                data.NE.x.push(2.5 * decay * Math.sin(2 * Math.PI * 1.5 * t + 0.5) + 
+                              1.2 * decay * Math.sin(2 * Math.PI * 4.0 * t));
+                data.NE.y.push(2.0 * decay * Math.cos(2 * Math.PI * 1.8 * t + 0.8) + 
+                              1.0 * decay * Math.cos(2 * Math.PI * 5.0 * t));
+            }
+            
+            return data;
+        }
+        
+        const displacementData = generateDisplacementData();
+        
+        // Initial node positions
+        const nodes = {
+            NW: { x: 200, y: 200, label: 'NW' },
+            NE: { x: 600, y: 200, label: 'NE' }
+        };
+        
+        let currentTimeIndex = 0;
+        let isDragging = false;
+        let sliderValue = 0; // 0 to 1
+        
+        function setup() {
+            createCanvas(800, 600);
+        }
+        
+        function draw() {
+            background(26, 26, 26);
+            
+            // Get current displacement for both nodes (in inches)
+            const nwDisp = {
+                x: displacementData.NW.x[currentTimeIndex],
+                y: displacementData.NW.y[currentTimeIndex]
+            };
+            const neDisp = {
+                x: displacementData.NE.x[currentTimeIndex],
+                y: displacementData.NE.y[currentTimeIndex]
+            };
+            
+            // Calculate current positions (convert inches to pixels for display)
+            const nwCurrent = { 
+                x: nodes.NW.x + nwDisp.x * PIXELS_PER_INCH, 
+                y: nodes.NW.y + nwDisp.y * PIXELS_PER_INCH 
+            };
+            const neCurrent = { 
+                x: nodes.NE.x + neDisp.x * PIXELS_PER_INCH, 
+                y: nodes.NE.y + neDisp.y * PIXELS_PER_INCH 
+            };
+            
+            // Draw displacement trails (faded)
+            drawTrails();
+            
+            // Draw connection line between CURRENT positions
+            stroke(100, 100, 100);
+            strokeWeight(2);
+            line(nwCurrent.x, nwCurrent.y, neCurrent.x, neCurrent.y);
+            
+            // Draw time slider bar on the connection line
+            drawTimeSlider(nwCurrent, neCurrent);
+            
+            // Draw initial positions (ghost nodes)
+            drawGhostNode(nodes.NW);
+            drawGhostNode(nodes.NE);
+            
+            // Draw current positions (solid nodes)
+            drawNode(nwCurrent, nodes.NW.label, color(50, 255, 100));
+            drawNode(neCurrent, nodes.NE.label, color(50, 255, 100));
+            
+            // Draw displacement vectors
+            drawDisplacementVector(nodes.NW, nwCurrent);
+            drawDisplacementVector(nodes.NE, neCurrent);
+            
+            // Update time display
+            const currentTime = (currentTimeIndex / timeSteps) * duration;
+            document.getElementById('timeDisplay').textContent = 
+                `Time: ${currentTime.toFixed(2)}s (${((currentTimeIndex / timeSteps) * 100).toFixed(0)}%)`;
+        }
+        
+        function drawTrails() {
+            // Draw semi-transparent trails showing the path of motion
+            noFill();
+            
+            // NW trail
+            stroke(50, 255, 100, 30);
+            strokeWeight(1);
+            beginShape();
+            for (let i = 0; i <= currentTimeIndex; i++) {
+                const x = nodes.NW.x + displacementData.NW.x[i] * PIXELS_PER_INCH;
+                const y = nodes.NW.y + displacementData.NW.y[i] * PIXELS_PER_INCH;
+                vertex(x, y);
+            }
+            endShape();
+            
+            // NE trail
+            stroke(50, 200, 255, 30);
+            beginShape();
+            for (let i = 0; i <= currentTimeIndex; i++) {
+                const x = nodes.NE.x + displacementData.NE.x[i] * PIXELS_PER_INCH;
+                const y = nodes.NE.y + displacementData.NE.y[i] * PIXELS_PER_INCH;
+                vertex(x, y);
+            }
+            endShape();
+        }
+        
+        function drawTimeSlider(pos1, pos2) {
+            // Draw the slider track (thicker, semi-transparent)
+            stroke(100, 150, 255, 100);
+            strokeWeight(8);
+            line(pos1.x, pos1.y, pos2.x, pos2.y);
+            
+            // Calculate slider position
+            const sliderX = lerp(pos1.x, pos2.x, sliderValue);
+            const sliderY = lerp(pos1.y, pos2.y, sliderValue);
+            
+            // Draw slider handle
+            fill(100, 150, 255);
+            noStroke();
+            circle(sliderX, sliderY, 16);
+            
+            // Draw slider handle outline
+            noFill();
+            stroke(150, 200, 255);
+            strokeWeight(2);
+            circle(sliderX, sliderY, 20);
+            
+            // Draw time markers
+            drawTimeMarkers(pos1, pos2);
+        }
+        
+        function drawTimeMarkers(pos1, pos2) {
+            // Draw markers at 0%, 25%, 50%, 75%, 100%
+            for (let i = 0; i <= 4; i++) {
+                const t = i / 4;
+                const x = lerp(pos1.x, pos2.x, t);
+                const y = lerp(pos1.y, pos2.y, t);
+                
+                fill(150, 150, 150);
+                noStroke();
+                circle(x, y, 4);
+            }
+        }
+        
+        function drawGhostNode(node) {
+            // Draw ghost node (initial position)
+            fill(80, 80, 80, 100);
+            stroke(120, 120, 120, 150);
+            strokeWeight(2);
+            circle(node.x, node.y, 40);
+            
+            // Label
+            fill(150, 150, 150, 150);
+            noStroke();
+            textAlign(CENTER, CENTER);
+            textSize(12);
+            text(node.label, node.x, node.y);
+        }
+        
+        function drawNode(pos, label, col) {
+            // Draw current node
+            fill(col);
+            stroke(255);
+            strokeWeight(2);
+            circle(pos.x, pos.y, 40);
+            
+            // Label
+            fill(0);
+            noStroke();
+            textAlign(CENTER, CENTER);
+            textSize(12);
+            textStyle(BOLD);
+            text(label, pos.x, pos.y);
+        }
+        
+        function drawDisplacementVector(initial, current) {
+            // Draw arrow from initial to current position
+            stroke(255, 200, 50, 180);
+            strokeWeight(2);
+            
+            // Arrow line
+            const angle = Math.atan2(current.y - initial.y, current.x - initial.x);
+            const mag = dist(initial.x, initial.y, current.x, current.y);
+            const magInches = mag / PIXELS_PER_INCH; // Convert pixels to inches
+            
+            if (mag > 2) { // Only draw if displacement is significant
+                line(initial.x, initial.y, current.x, current.y);
+                
+                // Arrow head
+                const arrowSize = 8;
+                push();
+                translate(current.x, current.y);
+                rotate(angle);
+                fill(255, 200, 50);
+                noStroke();
+                triangle(0, 0, -arrowSize, -arrowSize/2, -arrowSize, arrowSize/2);
+                pop();
+                
+                // Displacement magnitude label in INCHES
+                const midX = (initial.x + current.x) / 2;
+                const midY = (initial.y + current.y) / 2;
+                fill(255, 200, 50);
+                noStroke();
+                textSize(10);
+                text(`${magInches.toFixed(2)}"`, midX, midY - 10);
+            }
+        }
+        
+        function mousePressed() {
+            // Check if mouse is near the slider
+            const nwCurrent = {
+                x: nodes.NW.x + displacementData.NW.x[currentTimeIndex] * PIXELS_PER_INCH,
+                y: nodes.NW.y + displacementData.NW.y[currentTimeIndex] * PIXELS_PER_INCH
+            };
+            const neCurrent = {
+                x: nodes.NE.x + displacementData.NE.x[currentTimeIndex] * PIXELS_PER_INCH,
+                y: nodes.NE.y + displacementData.NE.y[currentTimeIndex] * PIXELS_PER_INCH
+            };
+            
+            // Check if click is near the line
+            const d = distToSegment(mouseX, mouseY, nwCurrent, neCurrent);
+            if (d < 20) {
+                isDragging = true;
+                updateSliderPosition(nwCurrent, neCurrent);
+            }
+        }
+        
+        function mouseDragged() {
+            if (isDragging) {
+                const nwCurrent = {
+                    x: nodes.NW.x + displacementData.NW.x[currentTimeIndex] * PIXELS_PER_INCH,
+                    y: nodes.NW.y + displacementData.NW.y[currentTimeIndex] * PIXELS_PER_INCH
+                };
+                const neCurrent = {
+                    x: nodes.NE.x + displacementData.NE.x[currentTimeIndex] * PIXELS_PER_INCH,
+                    y: nodes.NE.y + displacementData.NE.y[currentTimeIndex] * PIXELS_PER_INCH
+                };
+                updateSliderPosition(nwCurrent, neCurrent);
+            }
+        }
+        
+        function mouseReleased() {
+            isDragging = false;
+        }
+        
+        function updateSliderPosition(pos1, pos2) {
+            // Project mouse position onto the line
+            const dx = pos2.x - pos1.x;
+            const dy = pos2.y - pos1.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            
+            const mx = mouseX - pos1.x;
+            const my = mouseY - pos1.y;
+            
+            // Calculate projection
+            const t = (mx * dx + my * dy) / (len * len);
+            sliderValue = constrain(t, 0, 1);
+            
+            // Update current time index
+            currentTimeIndex = Math.floor(sliderValue * (timeSteps - 1));
+        }
+        
+        function distToSegment(px, py, p1, p2) {
+            // Calculate distance from point to line segment
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const len2 = dx * dx + dy * dy;
+            
+            if (len2 === 0) return dist(px, py, p1.x, p1.y);
+            
+            const t = Math.max(0, Math.min(1, ((px - p1.x) * dx + (py - p1.y) * dy) / len2));
+            const projX = p1.x + t * dx;
+            const projY = p1.y + t * dy;
+            
+            return dist(px, py, projX, projY);
+        }
+    </script>
+</body>
+</html>
